@@ -8,8 +8,10 @@ import (
 	"context"
 	"fmt"
 
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/zarf-dev/zarf/src/pkg/logger"
 	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/registry"
 
 	retry "github.com/avast/retry-go/v4"
 )
@@ -38,6 +40,7 @@ func CopyPackage(ctx context.Context, src *Remote, dst *Remote, opts PublishOpti
 
 	copyOpts := dst.OrasRemote.GetDefaultCopyOpts()
 	copyOpts.Concurrency = opts.OCIConcurrency
+	copyOpts.MountFrom = blobMountSource(src.Repo().Reference, dst.Repo().Reference)
 
 	tag := src.Repo().Reference.Reference // keep the source tag on the destination
 	if opts.Tag != "" {
@@ -91,4 +94,16 @@ func CopyPackage(ctx context.Context, src *Remote, dst *Remote, opts PublishOpti
 		"tag", tag,
 	)
 	return nil
+}
+
+// blobMountSource returns the source repository when it shares a registry with
+// the destination. ORAS falls back to copying when the registry cannot mount a blob.
+func blobMountSource(src, dst registry.Reference) func(context.Context, ocispec.Descriptor) ([]string, error) {
+	if src.Registry != dst.Registry {
+		return nil
+	}
+
+	return func(context.Context, ocispec.Descriptor) ([]string, error) {
+		return []string{src.Repository}, nil
+	}
 }
